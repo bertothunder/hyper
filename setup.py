@@ -1,14 +1,31 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
-import itertools
 import os
 import re
 import sys
 
-try:
-    from setuptools import setup
-except ImportError:
-    from distutils.core import setup
+from setuptools import setup
+from setuptools.command.test import test as TestCommand
+
+
+class PyTest(TestCommand):
+    user_options = [('pytest-args=', 'a', "Arguments to pass to py.test")]
+
+    def initialize_options(self):
+        TestCommand.initialize_options(self)
+        self.pytest_args = ['test/']
+
+    def finalize_options(self):
+        TestCommand.finalize_options(self)
+        self.test_args = []
+        self.test_suite = True
+
+    def run_tests(self):
+        # import here, cause outside the eggs aren't loaded
+        import pytest
+        errno = pytest.main(self.pytest_args)
+        sys.exit(errno)
+
 
 # Get the version
 version_regex = r'__version__ = ["\']([^"\']*)["\']'
@@ -26,15 +43,6 @@ if sys.argv[-1] == 'publish':
     os.system('python setup.py sdist upload')
     sys.exit()
 
-py_version = sys.version_info[:2]
-py_long_version = sys.version_info[:3]
-
-def resolve_install_requires():
-    if py_version == (3,3):
-        return ['pyOpenSSL>=0.15', 'service_identity>=14.0.0']
-    elif py_version == (2,7) and py_long_version < (2,7,9):
-        return ['pyOpenSSL>=0.15', 'service_identity>=14.0.0']
-    return []
 
 packages = [
     'hyper',
@@ -42,8 +50,7 @@ packages = [
     'hyper.common',
     'hyper.http11',
     'hyper.packages',
-    'hyper.packages.hpack',
-    'hyper.packages.hyperframe',
+    'hyper.packages.rfc3986'
 ]
 
 setup(
@@ -68,9 +75,12 @@ setup(
         'Programming Language :: Python :: 2.7',
         'Programming Language :: Python :: 3',
         'Programming Language :: Python :: 3.4',
+        'Programming Language :: Python :: 3.5',
         'Programming Language :: Python :: Implementation :: CPython',
     ],
-    install_requires=resolve_install_requires(),
+    install_requires=['h2>=2.3,<3.0', 'hyperframe>=3.2,<4.0'],
+    tests_require=['pytest', 'requests', 'mock'],
+    cmdclass={'test': PyTest},
     entry_points={
         'console_scripts': [
             'hyper = hyper.cli:main',
@@ -78,5 +88,14 @@ setup(
     },
     extras_require={
         'fast': ['pycohttpparser'],
+        # Fallback to good SSL on bad Python versions.
+        ':python_full_version < "2.7.9"': [
+            'pyOpenSSL>=0.15', 'service_identity>=14.0.0'
+        ],
+        # PyPy with bad SSL modules will likely also need the cryptography
+        # module at lower than 1.0, because it doesn't support CFFI v1.0 yet.
+        ':platform_python_implementation == "PyPy" and python_full_version < "2.7.9"': [
+            'cryptography<1.0'
+        ]
     }
 )

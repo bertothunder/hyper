@@ -6,6 +6,7 @@ hyper/http20/exceptions
 This defines exceptions used in the HTTP/2 portion of hyper.
 """
 
+
 class HTTP20Error(Exception):
     """
     The base class for all of ``hyper``'s HTTP/2-related exceptions.
@@ -38,5 +39,12 @@ class ConnectionError(HTTP20Error):
 class ProtocolError(HTTP20Error):
     """
     The remote party violated the HTTP/2 protocol.
+    """
+    pass
+
+
+class StreamResetError(HTTP20Error):
+    """
+    A stream was forcefully reset by the remote party.
     """
     pass

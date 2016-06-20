@@ -5,6 +5,8 @@ hyper/common/exceptions
 
 Contains hyper's exceptions.
 """
+
+
 class ChunkedDecodeError(Exception):
     """
     An error was encountered while decoding a chunked response.
@@ -43,6 +45,7 @@ except NameError:  # pragma: no cover
         A HTTP connection was unexpectedly reset.
         """
 
+
 class TLSUpgrade(Exception):
     """
     We upgraded to a new protocol in the NPN/ALPN handshake.
@@ -51,3 +54,20 @@ class TLSUpgrade(Exception):
         super(TLSUpgrade, self).__init__()
         self.negotiated = negotiated
         self.sock = sock
+
+
+class HTTPUpgrade(Exception):
+    """
+    We upgraded to a new protocol via the HTTP Upgrade response.
+    """
+    def __init__(self, negotiated, sock):
+        super(HTTPUpgrade, self).__init__()
+        self.negotiated = negotiated
+        self.sock = sock
+
+
+class MissingCertFile(Exception):
+    """
+    The certificate file could not be found.
+    """
+    pass

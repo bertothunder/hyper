@@ -1,6 +1,117 @@
 Release History
 ===============
 
+0.6.2 (2016-03-13)
+------------------
+
+*Bugfixes*
+
+- Fixed packaging error made in prior release.
+
+0.6.1 (2016-06-13)
+------------------
+
+*Bugfixes*
+
+- Tolerate errors when attempting to send a RST_STREAM frame.
+- Ensure that calls to ``fileno()`` on the compatibility ``SSLSocket`` object
+  actually work correctly. Thanks to @benlast!
+- Improved some problems with thread-safety in the ``Stream`` class. Thanks to
+  @fredthomsen!
+- Allowed for systems to use hyper without the bundled cert file being present.
+  Thanks to @JasonGowthorpe!
+
+0.6.0 (2016-05-06)
+------------------
+
+*Major Changes*
+
+- The ``HTTP20Connection`` object is now thread-safe, so long as stream IDs are
+  used on all method calls.
+- Replaced the HTTP/2 state machine logic entirely to use hyper-h2. This will
+  dramatically change the behaviour of the library in many situations, mostly
+  for the better. However, this is also likely to introduce new bugs, so please
+  be cautious.
+
+*API Changes*
+
+- Allow non-dictionary headers in ``request``.
+- ``HTTP20Connection`` now has a ``force_proto`` keyword argument to allow the
+  ``HTTP20Connection`` to ignore the NPN/ALPN result.
+- The ``--h2`` CLI flag now ignores the result of NPN/ALPN negotiation when
+  hitting HTTPS URLs.
+- Added support for HTTPS client certificates.
+- Notifications about streams being reset is now delayed to fire when the
+  stream in question is next accessed, rather than immediately.
+
+*Bugfixes*
+
+- Overriding HTTP/2 special headers no longer leads to ill-formed header blocks
+  with special headers at the end.
+- Vastly improved IPv6 support.
+- Fix converting unicode bodies to bytestrings on Python 2.7.
+- Allow overriding the HTTP/2 pseudo-headers from the CLI.
+- Fixed problems with incorrectly generating the ``HTTP2-Settings`` header.
+- Improved handling of socket errors.
+
+0.5.0 (2015-10-11)
+------------------
+
+*Feature Enhancement*
+
+- Pay attention to max frame length changes from remote peers. Thanks to
+  @jdecuyper!
+
+*Bugfixes*
+
+- Prevent hyper from emitting oversized frames. Thanks to @jdecuyper!
+- Prevent hyper from emitting RST_STREAM frames whenever it finishes consuming
+  a stream.
+- Prevent hyper from emitting lots of RST_STREAM frames.
+- Hyper CLI tool now correctly uses TLS for any ``https``-schemed URL.
+- Hyper CLI tool no longer attempts to decode bytes, instead writing them
+  straight to the terminal.
+- Added new ``--h2`` flag to the Hyper CLI tool, which allows straight HTTP/2
+  in plaintext, rather than attempting to upgrade from HTTP/1.1.
+- Allow arguments and keyword arguments in abstract version of
+  ``get_response``.
+
+*Software Updates*
+
+- Updated hyperframe to version 2.1.0
+
+0.4.0 (2015-06-21)
+------------------
+
+*New Features*
+
+- HTTP/1.1 and HTTP/2 abstraction layer. Don't specify what version you want to
+  use, just automatically get the best version the server supports!
+- Support for upgrading plaintext HTTP/1.1 to plaintext HTTP/2, with thanks to
+  @fredthomsen! (`Issue #28`_)
+- ``HTTP11Connection`` and ``HTTPConnection`` objects are now both context
+  managers.
+- Added support for ALPN negotiation when using PyOpenSSL. (`Issue #31`_)
+- Added support for user-provided SSLContext objects, with thanks to
+  @jdecuyper! (`Issue #8`_)
+- Better support for HTTP/2 error codes, with thanks to @jdecuyper!
+  (`Issue #119`_)
+- More gracefully close connections, with thanks to @jdecuyper! (`Issue #15`_)
+
+*Structural Changes*
+
+- The framing and HPACK layers were stripped out into their own libraries.
+
+*Bugfixes*
+
+- Properly verify hostnames when using PyOpenSSL.
+
+.. _Issue #8: https://github.com/Lukasa/hyper/issues/8
+.. _Issue #15: https://github.com/Lukasa/hyper/issues/15
+.. _Issue #28: https://github.com/Lukasa/hyper/issues/28
+.. _Issue #31: https://github.com/Lukasa/hyper/issues/31
+.. _Issue #119: https://github.com/Lukasa/hyper/issues/119
+
 0.3.1 (2015-04-03)
 ------------------
 
@@ -28,7 +139,7 @@ Release History
     simple ``.headers`` and ``.trailers`` properties that contain
     ``HTTPHeaderMap`` structures.
   - Headers and trailers are now bytestrings, rather than unicode strings.
-  - An ``iter_chunked()`` method was added to repsonse objects that allows
+  - An ``iter_chunked()`` method was added to response objects that allows
     iterating over data in units of individual data frames.
   - Changed the name of ``getresponse()`` to ``get_response()``, because
     ``getresponse()`` was a terrible name forced upon me by httplib.

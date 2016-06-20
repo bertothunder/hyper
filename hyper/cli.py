@@ -14,9 +14,10 @@ from argparse import OPTIONAL, ZERO_OR_MORE
 from pprint import pformat
 from textwrap import dedent
 
-from hyper import HTTP20Connection
+from hyper import HTTPConnection, HTTP20Connection
 from hyper import __version__
 from hyper.compat import is_py2, urlencode, urlsplit, write_to_stdout
+from hyper.common.util import to_host_port_tuple
 
 
 log = logging.getLogger('hyper')
@@ -105,25 +106,32 @@ def make_troubleshooting_argument(parser):
     parser.add_argument(
         '--debug', action='store_true', default=False,
         help='Show debugging information (loglevel=DEBUG)')
+    parser.add_argument(
+        '--h2', action='store_true', default=False,
+        help="Do HTTP/2 directly, skipping plaintext upgrade and ignoring "
+             "NPN/ALPN."
+    )
+
+
+def split_host_and_port(hostname):
+    if ':' in hostname:
+        return to_host_port_tuple(hostname, default_port=443)
+    return hostname, None
+
+
+class UrlInfo(object):
+    def __init__(self):
+        self.fragment = None
+        self.host = 'localhost'
+        self.netloc = None
+        self.path = '/'
+        self.port = 443
+        self.query = None
+        self.scheme = 'https'
+        self.secure = False
 
 
 def set_url_info(args):
-    def split_host_and_port(hostname):
-        if ':' in hostname:
-            host, port = hostname.split(':')
-            return host, int(port)
-        return hostname, None
-
-    class UrlInfo(object):
-        def __init__(self):
-            self.fragment = None
-            self.host = 'localhost'
-            self.netloc = None
-            self.path = '/'
-            self.port = 443
-            self.query = None
-            self.scheme = 'https'
-
     info = UrlInfo()
     _result = urlsplit(args._url)
     for attr in vars(info).keys():
@@ -133,6 +141,9 @@ def set_url_info(args):
 
     if info.scheme == 'http' and not _result.port:
         info.port = 80
+
+    # Set the secure arg is the scheme is HTTPS, otherwise do unsecured.
+    info.secure = info.scheme == 'https'
 
     if info.netloc:
         hostname, _ = split_host_and_port(info.netloc)
@@ -157,7 +168,14 @@ def set_request_data(args):
     body, headers, params = {}, {}, {}
     for i in args.items:
         if i.sep == SEP_HEADERS:
-            headers[i.key] = i.value
+            if i.key:
+                headers[i.key] = i.value
+            else:
+                # when overriding a HTTP/2 special header there will be a
+                # leading colon, which tricks the command line parser into
+                # thinking the header is empty
+                k, v = i.value.split(':', 1)
+                headers[':' + k] = v
         elif i.sep == SEP_QUERY:
             params[i.key] = i.value
         elif i.sep == SEP_DATA:
@@ -214,14 +232,23 @@ def get_content_type_and_charset(response):
 
 
 def request(args):
-    conn = HTTP20Connection(args.url.host, args.url.port)
+    if not args.h2:
+        conn = HTTPConnection(
+            args.url.host, args.url.port, secure=args.url.secure
+        )
+    else:  # pragma: no cover
+        conn = HTTP20Connection(
+            args.url.host,
+            args.url.port,
+            secure=args.url.secure,
+            force_proto='h2'
+        )
+
     conn.request(args.method, args.url.path, args.body, args.headers)
     response = conn.get_response()
     log.debug('Response Headers:\n%s', pformat(response.headers))
     ctype, charset = get_content_type_and_charset(response)
-    data = response.read().decode(charset)
-    if 'json' in ctype:
-        data = pformat(json.loads(data))
+    data = response.read()
     return data
 
 
@@ -229,7 +256,7 @@ def main(argv=None):
     args = parse_argument(argv)
     log.debug('Commandline Argument: %s', args)
     data = request(args)
-    write_to_stdout(data.encode(PREFERRED_ENCODING, errors='replace'))
+    write_to_stdout(data)
 
 
 if __name__ == '__main__':  # pragma: no cover

@@ -19,16 +19,18 @@ import sys
 from hyper import HTTP20Connection
 from hyper.compat import ssl
 from hyper.http11.connection import HTTP11Connection
-from hyper.packages.hpack.hpack import Encoder
-from hyper.packages.hpack.huffman import HuffmanEncoder
-from hyper.packages.hpack.huffman_constants import (
+from hpack.hpack import Encoder
+from hpack.huffman import HuffmanEncoder
+from hpack.huffman_constants import (
     REQUEST_CODES, REQUEST_CODES_LENGTH
 )
 from hyper.tls import NPN_PROTOCOL
 
+
 class SocketServerThread(threading.Thread):
     """
-    This method stolen wholesale from shazow/urllib3 under license. See NOTICES.
+    This method stolen wholesale from shazow/urllib3 under license. See
+    NOTICES.
 
     :param socket_handler: Callable which receives a socket argument for one
         request.
@@ -39,24 +41,30 @@ class SocketServerThread(threading.Thread):
                  socket_handler,
                  host='localhost',
                  ready_event=None,
-                 h2=True):
+                 h2=True,
+                 secure=True):
         threading.Thread.__init__(self)
 
         self.socket_handler = socket_handler
         self.host = host
+        self.secure = secure
         self.ready_event = ready_event
+        self.daemon = True
 
-        self.cxt = ssl.SSLContext(ssl.PROTOCOL_SSLv23)
-        if ssl.HAS_NPN and h2:
-            self.cxt.set_npn_protocols([NPN_PROTOCOL])
-        self.cxt.load_cert_chain(certfile='test/certs/server.crt',
-                                 keyfile='test/certs/server.key')
+        if self.secure:
+            self.cxt = ssl.SSLContext(ssl.PROTOCOL_SSLv23)
+            if ssl.HAS_NPN and h2:
+                self.cxt.set_npn_protocols([NPN_PROTOCOL])
+            self.cxt.load_cert_chain(certfile='test/certs/server.crt',
+                                     keyfile='test/certs/server.key')
 
     def _start_server(self):
-        sock = socket.socket(socket.AF_INET6)
+        sock = socket.socket()
         if sys.platform != 'win32':
             sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-        sock = self.cxt.wrap_socket(sock, server_side=True)
+
+        if self.secure:
+            sock = self.cxt.wrap_socket(sock, server_side=True)
         sock.bind((self.host, 0))
         self.port = sock.getsockname()[1]
 
@@ -81,9 +89,11 @@ class SocketLevelTest(object):
     A test-class that defines a few helper methods for running socket-level
     tests.
     """
-    def set_up(self):
+    def set_up(self, secure=True, proxy=False):
         self.host = None
         self.port = None
+        self.secure = secure if not proxy else False
+        self.proxy = proxy
         self.server_thread = None
 
     def _start_server(self, socket_handler):
@@ -95,17 +105,30 @@ class SocketLevelTest(object):
             socket_handler=socket_handler,
             ready_event=ready_event,
             h2=self.h2,
+            secure=self.secure
         )
         self.server_thread.start()
         ready_event.wait()
+
         self.host = self.server_thread.host
         self.port = self.server_thread.port
+        self.secure = self.server_thread.secure
 
     def get_connection(self):
         if self.h2:
-            return HTTP20Connection(self.host, self.port)
+            if not self.proxy:
+                return HTTP20Connection(self.host, self.port, self.secure)
+            else:
+                return HTTP20Connection('http2bin.org', secure=self.secure,
+                                        proxy_host=self.host,
+                                        proxy_port=self.port)
         else:
-            return HTTP11Connection(self.host, self.port, secure=True)
+            if not self.proxy:
+                return HTTP11Connection(self.host, self.port, self.secure)
+            else:
+                return HTTP11Connection('httpbin.org', secure=self.secure,
+                                        proxy_host=self.host,
+                                        proxy_port=self.port)
 
     def get_encoder(self):
         """

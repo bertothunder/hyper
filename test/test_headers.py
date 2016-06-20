@@ -3,6 +3,7 @@ from hyper.common.headers import HTTPHeaderMap
 
 import pytest
 
+
 class TestHTTPHeaderMap(object):
     def test_header_map_can_insert_single_header(self):
         h = HTTPHeaderMap()
@@ -257,4 +258,22 @@ class TestHTTPHeaderMap(object):
         assert list(h.items()) == [
             (b'hi', b'there'),
             (b'cat', b'dog'),
+        ]
+
+    def test_replacing(self):
+        h = HTTPHeaderMap([
+            (b'name', b'value'),
+            (b'name2', b'value2'),
+            (b'name2', b'value2'),
+            (b'name3', b'value3'),
+        ])
+
+        h.replace('name2', '42')
+        h.replace('name4', 'other_value')
+
+        assert list(h.items()) == [
+            (b'name', b'value'),
+            (b'name2', b'42'),
+            (b'name3', b'value3'),
+            (b'name4', b'other_value'),
         ]

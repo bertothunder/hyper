@@ -46,10 +46,11 @@ class DummyResponse(object):
 
 
 class DummyConnection(object):
-    def __init__(self, host, port):
+    def __init__(self, host, port, secure=False):
         self.host = host
         self.port = port
         self.response = DummyResponse({'content-type': 'application/json'})
+        self.secure = secure
 
     def request(self, method, path, body, headers):
         return method, path, body, headers
@@ -82,7 +83,7 @@ def _get_value(obj, key):
     'specified host with url scheme https:// and path',
 ])
 def test_cli_normal(monkeypatch, argv):
-    monkeypatch.setattr('hyper.cli.HTTP20Connection', DummyConnection)
+    monkeypatch.setattr('hyper.cli.HTTPConnection', DummyConnection)
     main(argv)
     assert True
 
@@ -109,11 +110,20 @@ def test_cli_with_system_exit(argv):
      {'method': 'GET', 'url.path': '/?param=test'}),
     (['POST', 'example.com', 'data=test'],
      {'method': 'POST', 'body': '{"data": "test"}'}),
+    (['GET', 'example.com', ':authority:example.org'],
+     {'method': 'GET', 'headers': {
+                            ':authority': 'example.org'}}),
+    (['GET', 'example.com', ':authority:example.org', 'x-test:header'],
+     {'method': 'GET', 'headers': {
+                            ':authority': 'example.org',
+                            'x-test': 'header'}}),
 ], ids=[
     'specified "--debug" option',
     'specified host and additional header',
     'specified host and get parameter',
     'specified host and post data',
+    'specified host and override default header',
+    'specified host and override default header and additional header',
 ])
 def test_parse_argument(argv, expected):
     args = parse_argument(argv)
@@ -177,27 +187,33 @@ def test_set_request_data(args, expected):
 @pytest.mark.parametrize(('args', 'expected'), [
     (DummyNamespace({'_url': ''}),
      {'query': None, 'host': 'localhost', 'fragment': None,
-      'port': 443, 'netloc': None, 'scheme': 'https', 'path': '/'}),
+      'port': 443, 'netloc': None, 'scheme': 'https', 'path': '/',
+      'secure': True}),
     (DummyNamespace({'_url': 'example.com'}),
-     {'host': 'example.com', 'port': 443, 'path': '/'}),
+     {'host': 'example.com', 'port': 443, 'path': '/', 'secure': True}),
     (DummyNamespace({'_url': 'example.com/httpbin/get'}),
-     {'host': 'example.com', 'port': 443, 'path': '/httpbin/get'}),
+     {'host': 'example.com', 'port': 443, 'path': '/httpbin/get',
+     'secure': True}),
     (DummyNamespace({'_url': 'example.com:80'}),
-     {'host': 'example.com', 'port': 80, 'path': '/'}),
+     {'host': 'example.com', 'port': 80, 'path': '/', 'secure': True}),
     (DummyNamespace({'_url': 'http://example.com'}),
-     {'host': 'example.com', 'port': 80, 'path': '/', 'scheme': 'http'}),
+     {'host': 'example.com', 'port': 80, 'path': '/', 'scheme': 'http',
+     'secure': False}),
     (DummyNamespace({'_url': 'http://example.com/'}),
-     {'host': 'example.com', 'port': 80, 'path': '/', 'scheme': 'http'}),
+     {'host': 'example.com', 'port': 80, 'path': '/', 'scheme': 'http',
+     'secure': False}),
     (DummyNamespace({'_url': 'http://example.com:8080'}),
-     {'host': 'example.com', 'port': 8080, 'path': '/', 'scheme': 'http'}),
+     {'host': 'example.com', 'port': 8080, 'path': '/', 'scheme': 'http',
+     'secure': False}),
     (DummyNamespace({'_url': 'https://example.com'}),
-     {'host': 'example.com', 'port': 443, 'path': '/', 'scheme': 'https'}),
+     {'host': 'example.com', 'port': 443, 'path': '/', 'scheme': 'https',
+     'secure': True}),
     (DummyNamespace({'_url': 'https://example.com/httpbin/get'}),
      {'host': 'example.com', 'port': 443, 'path': '/httpbin/get',
-      'scheme': 'https'}),
+      'scheme': 'https', 'secure': True}),
     (DummyNamespace({'_url': 'https://example.com:8443/httpbin/get'}),
      {'host': 'example.com', 'port': 8443, 'path': '/httpbin/get',
-      'scheme': 'https'}),
+      'scheme': 'https', 'secure': True}),
 ], ids=[
     'set no url (it means default settings)',
     'set only hostname',

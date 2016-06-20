@@ -33,23 +33,25 @@ class TestHTTP11Connection(object):
             import pycohttpparser
         else:
             with pytest.raises(ImportError):
-                import pycohttpparser
+                import pycohttpparser  # noqa
 
         assert True
 
     def test_initialization_no_port(self):
-        c = HTTP11Connection('http2bin.org')
+        c = HTTP11Connection('httpbin.org')
 
-        assert c.host == 'http2bin.org'
+        assert c.host == 'httpbin.org'
         assert c.port == 80
         assert not c.secure
+        assert not c.proxy_host
 
     def test_initialization_inline_port(self):
-        c = HTTP11Connection('http2bin.org:443')
+        c = HTTP11Connection('httpbin.org:443')
 
-        assert c.host == 'http2bin.org'
+        assert c.host == 'httpbin.org'
         assert c.port == 443
         assert c.secure
+        assert not c.proxy_host
 
     def test_initialization_separate_port(self):
         c = HTTP11Connection('localhost', 8080)
@@ -57,6 +59,7 @@ class TestHTTP11Connection(object):
         assert c.host == 'localhost'
         assert c.port == 8080
         assert not c.secure
+        assert not c.proxy_host
 
     def test_can_override_security(self):
         c = HTTP11Connection('localhost', 443, secure=False)
@@ -64,9 +67,50 @@ class TestHTTP11Connection(object):
         assert c.host == 'localhost'
         assert c.port == 443
         assert not c.secure
+        assert not c.proxy_host
+
+    def test_initialization_proxy(self):
+        c = HTTP11Connection('httpbin.org', proxy_host='localhost')
+
+        assert c.host == 'httpbin.org'
+        assert c.port == 80
+        assert not c.secure
+        assert c.proxy_host == 'localhost'
+        assert c.proxy_port == 8080
+
+    def test_initialization_proxy_with_inline_port(self):
+        c = HTTP11Connection('httpbin.org', proxy_host='localhost:8443')
+
+        assert c.host == 'httpbin.org'
+        assert c.port == 80
+        assert not c.secure
+        assert c.proxy_host == 'localhost'
+        assert c.proxy_port == 8443
+
+    def test_initialization_proxy_with_separate_port(self):
+        c = HTTP11Connection(
+            'httpbin.org', proxy_host='localhost', proxy_port=8443
+        )
+
+        assert c.host == 'httpbin.org'
+        assert c.port == 80
+        assert not c.secure
+        assert c.proxy_host == 'localhost'
+        assert c.proxy_port == 8443
+
+    def test_initialization_with_ipv6_addresses_proxy_inline_port(self):
+        c = HTTP11Connection(
+            '[abcd:dcba::1234]', proxy_host='[ffff:aaaa::1]:8443'
+        )
+
+        assert c.host == 'abcd:dcba::1234'
+        assert c.port == 80
+        assert not c.secure
+        assert c.proxy_host == 'ffff:aaaa::1'
+        assert c.proxy_port == 8443
 
     def test_basic_request(self):
-        c = HTTP11Connection('http2bin.org')
+        c = HTTP11Connection('httpbin.org')
         c._sock = sock = DummySocket()
 
         c.request('GET', '/get', headers={'User-Agent': 'hyper'})
@@ -74,7 +118,63 @@ class TestHTTP11Connection(object):
         expected = (
             b"GET /get HTTP/1.1\r\n"
             b"User-Agent: hyper\r\n"
-            b"host: http2bin.org\r\n"
+            b"connection: Upgrade, HTTP2-Settings\r\n"
+            b"upgrade: h2c\r\n"
+            b"HTTP2-Settings: AAQAAP__\r\n"
+            b"host: httpbin.org\r\n"
+            b"\r\n"
+        )
+        received = b''.join(sock.queue)
+
+        assert received == expected
+
+    def test_iterable_header(self):
+        c = HTTP11Connection('httpbin.org')
+        c._sock = sock = DummySocket()
+
+        c.request('GET', '/get', headers=(
+            ('User-Agent', 'hyper'),
+            ('Custom-field', 'test'),
+            ('Custom-field2', 'test'),
+            ('Custom-field', 'test2'),
+        ))
+
+        expected = (
+            b"GET /get HTTP/1.1\r\n"
+            b"User-Agent: hyper\r\n"
+            b"Custom-field: test\r\n"
+            b"Custom-field2: test\r\n"
+            b"Custom-field: test2\r\n"
+            b"connection: Upgrade, HTTP2-Settings\r\n"
+            b"upgrade: h2c\r\n"
+            b"HTTP2-Settings: AAQAAP__\r\n"
+            b"host: httpbin.org\r\n"
+            b"\r\n"
+        )
+        received = b''.join(sock.queue)
+
+        assert received == expected
+
+    def test_invalid_header(self):
+        c = HTTP11Connection('httpbin.org')
+        c._sock = DummySocket()
+
+        with pytest.raises(ValueError):
+            c.request('GET', '/get', headers=42)
+
+    def test_proxy_request(self):
+        c = HTTP11Connection('httpbin.org', proxy_host='localhost')
+        c._sock = sock = DummySocket()
+
+        c.request('GET', '/get', headers={'User-Agent': 'hyper'})
+
+        expected = (
+            b"GET /get HTTP/1.1\r\n"
+            b"User-Agent: hyper\r\n"
+            b"connection: Upgrade, HTTP2-Settings\r\n"
+            b"upgrade: h2c\r\n"
+            b"HTTP2-Settings: AAQAAP__\r\n"
+            b"host: httpbin.org\r\n"
             b"\r\n"
         )
         received = b''.join(sock.queue)
@@ -82,7 +182,7 @@ class TestHTTP11Connection(object):
         assert received == expected
 
     def test_request_with_bytestring_body(self):
-        c = HTTP11Connection('http2bin.org')
+        c = HTTP11Connection('httpbin.org')
         c._sock = sock = DummySocket()
 
         c.request(
@@ -95,8 +195,11 @@ class TestHTTP11Connection(object):
         expected = (
             b"POST /post HTTP/1.1\r\n"
             b"User-Agent: hyper\r\n"
+            b"connection: Upgrade, HTTP2-Settings\r\n"
+            b"upgrade: h2c\r\n"
+            b"HTTP2-Settings: AAQAAP__\r\n"
             b"content-length: 2\r\n"
-            b"host: http2bin.org\r\n"
+            b"host: httpbin.org\r\n"
             b"\r\n"
             b"hi"
         )
@@ -109,6 +212,7 @@ class TestHTTP11Connection(object):
         # file and monkeypatching out 'os.fstat'. This makes it look like a
         # real file.
         FstatRval = namedtuple('FstatRval', ['st_size'])
+
         def fake_fstat(*args):
             return FstatRval(16)
 
@@ -116,7 +220,7 @@ class TestHTTP11Connection(object):
 
         try:
             hyper.http11.connection.os.fstat = fake_fstat
-            c = HTTP11Connection('http2bin.org')
+            c = HTTP11Connection('httpbin.org')
             c._sock = sock = DummySocket()
 
             f = DummyFile(b'some binary data')
@@ -124,8 +228,11 @@ class TestHTTP11Connection(object):
 
             expected = (
                 b"POST /post HTTP/1.1\r\n"
+                b"connection: Upgrade, HTTP2-Settings\r\n"
+                b"upgrade: h2c\r\n"
+                b"HTTP2-Settings: AAQAAP__\r\n"
                 b"content-length: 16\r\n"
-                b"host: http2bin.org\r\n"
+                b"host: httpbin.org\r\n"
                 b"\r\n"
                 b"some binary data"
             )
@@ -138,8 +245,9 @@ class TestHTTP11Connection(object):
             hyper.http11.connection.os.fstat = old_fstat
 
     def test_request_with_generator_body(self):
-        c = HTTP11Connection('http2bin.org')
+        c = HTTP11Connection('httpbin.org')
         c._sock = sock = DummySocket()
+
         def body():
             yield b'hi'
             yield b'there'
@@ -149,8 +257,11 @@ class TestHTTP11Connection(object):
 
         expected = (
             b"POST /post HTTP/1.1\r\n"
+            b"connection: Upgrade, HTTP2-Settings\r\n"
+            b"upgrade: h2c\r\n"
+            b"HTTP2-Settings: AAQAAP__\r\n"
             b"transfer-encoding: chunked\r\n"
-            b"host: http2bin.org\r\n"
+            b"host: httpbin.org\r\n"
             b"\r\n"
             b"2\r\nhi\r\n"
             b"5\r\nthere\r\n"
@@ -162,30 +273,34 @@ class TestHTTP11Connection(object):
         assert received == expected
 
     def test_content_length_overrides_generator(self):
-        c = HTTP11Connection('http2bin.org')
+        c = HTTP11Connection('httpbin.org')
         c._sock = sock = DummySocket()
+
         def body():
             yield b'hi'
             yield b'there'
             yield b'sir'
 
         c.request(
-            'POST', '/post', headers={b'content-length': b'10'}, body=body()
+            'POST', '/post', body=body(), headers={b'content-length': b'10'}
         )
 
         expected = (
             b"POST /post HTTP/1.1\r\n"
             b"content-length: 10\r\n"
-            b"host: http2bin.org\r\n"
+            b"connection: Upgrade, HTTP2-Settings\r\n"
+            b"upgrade: h2c\r\n"
+            b"HTTP2-Settings: AAQAAP__\r\n"
+            b"host: httpbin.org\r\n"
             b"\r\n"
             b"hitheresir"
         )
-        received = b''.join(sock.queue)
 
+        received = b''.join(sock.queue)
         assert received == expected
 
     def test_chunked_overrides_body(self):
-        c = HTTP11Connection('http2bin.org')
+        c = HTTP11Connection('httpbin.org')
         c._sock = sock = DummySocket()
 
         f = DummyFile(b'oneline\nanotherline')
@@ -200,7 +315,10 @@ class TestHTTP11Connection(object):
         expected = (
             b"POST /post HTTP/1.1\r\n"
             b"transfer-encoding: chunked\r\n"
-            b"host: http2bin.org\r\n"
+            b"connection: Upgrade, HTTP2-Settings\r\n"
+            b"upgrade: h2c\r\n"
+            b"HTTP2-Settings: AAQAAP__\r\n"
+            b"host: httpbin.org\r\n"
             b"\r\n"
             b"8\r\noneline\n\r\n"
             b"b\r\nanotherline\r\n"
@@ -211,10 +329,10 @@ class TestHTTP11Connection(object):
         assert received == expected
 
     def test_get_response(self):
-        c = HTTP11Connection('http2bin.org')
+        c = HTTP11Connection('httpbin.org')
         c._sock = sock = DummySocket()
 
-        sock._buffer= BytesIO(
+        sock._buffer = BytesIO(
             b"HTTP/1.1 201 No Content\r\n"
             b"Connection: close\r\n"
             b"Server: Socket\r\n"
@@ -234,10 +352,10 @@ class TestHTTP11Connection(object):
         assert r.read() == b''
 
     def test_response_short_reads(self):
-        c = HTTP11Connection('http2bin.org')
+        c = HTTP11Connection('httpbin.org')
         c._sock = sock = DummySocket()
 
-        sock._buffer= BytesIO(
+        sock._buffer = BytesIO(
             b"HTTP/1.1 200 OK\r\n"
             b"Content-Length: 15\r\n"
             b"\r\n"
@@ -254,7 +372,7 @@ class TestHTTP11Connection(object):
         assert r.read(5) == b''
 
     def test_request_with_unicodestring_body(self):
-        c = HTTP11Connection('http2bin.org')
+        c = HTTP11Connection('httpbin.org')
         c._sock = DummySocket()
 
         with pytest.raises(ValueError):
@@ -270,6 +388,7 @@ class TestHTTP11Connection(object):
         # file and monkeypatching out 'os.fstat'. This makes it look like a
         # real file.
         FstatRval = namedtuple('FstatRval', ['st_size'])
+
         def fake_fstat(*args):
             return FstatRval(16)
 
@@ -277,7 +396,7 @@ class TestHTTP11Connection(object):
 
         try:
             hyper.http11.connection.os.fstat = fake_fstat
-            c = HTTP11Connection('http2bin.org')
+            c = HTTP11Connection('httpbin.org')
             c._sock = DummySocket()
 
             f = DummyFile(b'')
@@ -290,8 +409,9 @@ class TestHTTP11Connection(object):
             hyper.http11.connection.os.fstat = old_fstat
 
     def test_request_with_unicode_generator_body(self):
-        c = HTTP11Connection('http2bin.org')
+        c = HTTP11Connection('httpbin.org')
         c._sock = DummySocket()
+
         def body():
             yield u'hi'
             yield u'there'
@@ -301,8 +421,9 @@ class TestHTTP11Connection(object):
             c.request('POST', '/post', body=body())
 
     def test_content_length_overrides_generator_unicode(self):
-        c = HTTP11Connection('http2bin.org')
+        c = HTTP11Connection('httpbin.org')
         c._sock = DummySocket()
+
         def body():
             yield u'hi'
             yield u'there'
@@ -315,6 +436,80 @@ class TestHTTP11Connection(object):
                 headers={b'content-length': b'10'},
                 body=body()
             )
+
+    def test_http_upgrade_headers_only_sent_once(self):
+        c = HTTP11Connection('httpbin.org')
+        c._sock = sock = DummySocket()
+
+        c.request('GET', '/get', headers={'User-Agent': 'hyper'})
+
+        sock.queue = []
+        c.request('GET', '/get', headers={'User-Agent': 'hyper'})
+        received = b''.join(sock.queue)
+
+        expected = (
+            b"GET /get HTTP/1.1\r\n"
+            b"User-Agent: hyper\r\n"
+            b"host: httpbin.org\r\n"
+            b"\r\n"
+        )
+
+        assert received == expected
+
+    def test_exception_raised_for_illegal_body_type(self):
+        c = HTTP11Connection('httpbin.org')
+
+        with pytest.raises(ValueError) as exc_info:
+            body = 1234
+            # content-length set so body type is set to BODY_FLAT. value
+            # doesn't matter
+            c.request(
+                'GET',
+                '/get',
+                body=body,
+                headers={'content-length': str(len(str(body)))}
+            )
+        assert 'Request body must be a bytestring, a file-like object ' \
+               'returning bytestrings or an iterable of bytestrings. ' \
+               'Got: {}'.format(type(body)) in str(exc_info)
+
+    def test_exception_raised_for_illegal_elements_in_iterable_body(self):
+        c = HTTP11Connection('httpbin.org')
+
+        rogue_element = 123
+        body = [b'legal1', b'legal2', rogue_element]
+        body_size = sum(len(bytes(x)) for x in body)
+        with pytest.raises(ValueError) as exc_info:
+            # content-length set so body type is set to BODY_FLAT. value
+            # doesn't matter
+            c.request(
+                'GET',
+                '/get',
+                body=body,
+                headers={'content-length': str(body_size)}
+            )
+        assert 'Elements in iterable body must be bytestrings. Illegal ' \
+               'element: {}'.format(rogue_element) \
+               in str(exc_info)
+
+    def test_exception_raised_for_filelike_body_not_returning_bytes(self):
+        c = HTTP11Connection('httpbin.org')
+
+        class RogueFile(object):
+            def read(self, size):
+                return 42
+
+        with pytest.raises(ValueError) as exc_info:
+            # content-length set so body type is BODY_FLAT. value doesn't
+            # matter
+            c.request(
+                'GET',
+                '/get',
+                body=RogueFile(),
+                headers={'content-length': str(10)}
+            )
+        assert 'File-like bodies must return bytestrings. ' \
+               'Got: {}'.format(int) in str(exc_info)
 
 
 class TestHTTP11Response(object):
@@ -344,7 +539,7 @@ class TestHTTP11Response(object):
         with r:
             assert r.read() == b''
 
-        assert r._sock == None
+        assert r._sock is None
 
     def test_response_transparently_decrypts_gzip(self):
         d = DummySocket()
@@ -360,7 +555,10 @@ class TestHTTP11Response(object):
 
     def test_response_transparently_decrypts_real_deflate(self):
         d = DummySocket()
-        headers = {b'content-encoding': [b'deflate'], b'connection': [b'close']}
+        headers = {
+            b'content-encoding': [b'deflate'],
+            b'connection': [b'close'],
+        }
         r = HTTP11Response(200, 'OK', headers, d, None)
         c = zlib_compressobj(wbits=zlib.MAX_WBITS)
         body = c.compress(b'this is test data')
@@ -645,13 +843,15 @@ class DummySocket(object):
     def __init__(self):
         self.queue = []
         self._buffer = BytesIO()
+        self._read_counter = 0
         self.can_read = False
 
     @property
     def buffer(self):
-        return memoryview(self._buffer.getvalue())
+        return memoryview(self._buffer.getvalue()[self._read_counter:])
 
     def advance_buffer(self, amt):
+        self._read_counter += amt
         self._buffer.read(amt)
 
     def send(self, data):
@@ -661,13 +861,17 @@ class DummySocket(object):
         self.queue.append(data)
 
     def recv(self, l):
-        return memoryview(self._buffer.read(l))
+        data = self._buffer.read(l)
+        self._read_counter += len(data)
+        return memoryview(data)
 
     def close(self):
         pass
 
     def readline(self):
-        return memoryview(self._buffer.readline())
+        line = self._buffer.readline()
+        self._read_counter += len(line)
+        return memoryview(line)
 
     def fill(self):
         pass
@@ -688,4 +892,3 @@ class DummyFile(object):
 
     def __iter__(self):
         return self.buffer.__iter__()
-
